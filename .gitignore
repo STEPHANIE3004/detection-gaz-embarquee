@@ -1,0 +1,4 @@
+*.ino.elf
+*.ino.hex
+build/
+.pio/
