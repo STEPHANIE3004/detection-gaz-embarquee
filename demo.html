@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>☢️ Détection Gaz Embarquée — Arduino + PIC16F877A/GSM</title>
+<style>
+  :root{--bg:#0a0500;--bg2:#130900;--bg3:#1a0d00;--border:#2a1500;--text:#ffe0b0;--muted:#8a6040;--orange:#ff9800;--red:#ff3d00;--yellow:#ffd600;--green:#76ff03;--blue:#40c4ff;--purple:#e040fb}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+  header{background:var(--bg2);border-bottom:2px solid var(--orange);padding:14px 24px;display:flex;align-items:center;gap:14px}
+  header h1{font-size:18px;font-weight:700;color:var(--orange)}
+  .sub{font-size:11px;color:var(--muted)}
+  .status-pill{margin-left:auto;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700}
+  .ok{background:#0a1a00;color:var(--green);border:1px solid var(--green)}
+  .warn{background:#1a1000;color:var(--yellow);border:1px solid var(--yellow)}
+  .danger{background:#1a0000;color:var(--red);border:1px solid var(--red);animation:flash .6s infinite}
+  @keyframes flash{0%,100%{opacity:1}50%{opacity:.3}}
+
+  .main{display:grid;grid-template-columns:1fr 1fr 1fr 300px;gap:12px;padding:16px;max-width:1350px;margin:0 auto}
+  .bottom{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 16px 16px;max-width:1350px;margin:0 auto}
+  .panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .ptitle{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+
+  /* Sensor card */
+  .sensor-val{font-size:42px;font-weight:800;line-height:1;text-align:center;margin:8px 0;font-family:'Courier New',monospace}
+  .sensor-unit{font-size:14px;font-weight:400}
+  .sensor-name{font-size:12px;color:var(--muted);text-align:center}
+  .level-badge{padding:4px 14px;border-radius:4px;font-size:13px;font-weight:700;text-align:center;margin-top:10px}
+
+  /* Vertical bar gauge */
+  .vbar-wrap{display:flex;gap:8px;align-items:flex-end;justify-content:center;height:140px;margin:10px 0}
+  .vbar{width:28px;border-radius:4px 4px 0 0;transition:height .5s,background .5s}
+  .vbar-label{font-size:9px;color:var(--muted);text-align:center;margin-top:4px}
+
+  /* LCD display */
+  .lcd{background:#001800;border:3px solid #003000;border-radius:6px;padding:16px;font-family:'Courier New',monospace;display:inline-block;box-shadow:0 0 20px rgba(118,255,3,0.3)}
+  .lcd-row{font-size:16px;color:#76ff03;line-height:2.2;white-space:pre;letter-spacing:1px;text-shadow:0 0 8px rgba(118,255,3,0.8)}
+
+  /* LEDs */
+  .leds{display:flex;gap:10px;justify-content:center;margin-top:12px}
+  .led{width:22px;height:22px;border-radius:50%;border:2px solid #333;transition:all .3s}
+  .led.on{box-shadow:0 0 12px currentColor}
+  .led-green{color:var(--green);background:var(--green)}
+  .led-yellow{color:var(--yellow);background:var(--yellow)}
+  .led-red{color:var(--red);background:var(--red)}
+  .led.off{opacity:.15;box-shadow:none}
+
+  /* Buzzer */
+  .buzzer{text-align:center;font-size:32px;margin-top:8px;transition:all .3s}
+  .buzzer.beep{animation:beep .3s}
+  @keyframes beep{0%{transform:scale(1)}50%{transform:scale(1.3)}100%{transform:scale(1)}}
+
+  /* History */
+  canvas{display:block}
+
+  /* Arduino serial */
+  .serial{background:#000;border:1px solid #1a0a00;border-radius:6px;padding:10px;height:160px;overflow-y:auto;font-family:'Courier New',monospace;font-size:10px;color:#ff9800}
+  .serial::-webkit-scrollbar{width:3px}
+  .sl-ok{color:var(--green)}
+  .sl-warn{color:var(--yellow)}
+  .sl-danger{color:var(--red)}
+  .sl-info{color:var(--blue)}
+
+  /* Threshold table */
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  th{background:var(--bg3);padding:6px;text-align:left;color:var(--muted);font-weight:600;font-size:10px}
+  td{padding:5px 6px;border-top:1px solid var(--border)}
+  .td-ok{color:var(--green)} .td-warn{color:var(--yellow)} .td-danger{color:var(--red)}
+</style>
+</head>
+<body>
+<header>
+  <span style="font-size:26px">☢️</span>
+  <div>
+    <h1>Détection Gaz Embarquée</h1>
+    <div class="sub">Double variante : Arduino Uno (connecté) · PIC16F877A + SIM800L GSM (autonome)</div>
+  </div>
+  <div style="display:flex;gap:8px;margin-left:auto;align-items:center">
+    <button onclick="switchVariant('arduino')" id="btn-v1" style="padding:4px 12px;border-radius:4px;border:1px solid var(--orange);background:#1a0d00;color:var(--orange);cursor:pointer;font-size:11px;font-weight:700">📡 Arduino Uno</button>
+    <button onclick="switchVariant('pic')" id="btn-v2" style="padding:4px 12px;border-radius:4px;border:1px solid #333;background:transparent;color:var(--muted);cursor:pointer;font-size:11px">🔌 PIC16F877A + GSM</button>
+    <div class="status-pill ok" id="global-status">✅ SYSTÈME OK</div>
+  </div>
+</header>
+
+<div id="variant-arduino">
+<div class="main">
+  <!-- MQ-2 -->
+  <div class="panel">
+    <div class="ptitle">🔥 MQ-2 — GPL / Fumée <span id="mq2-badge" class="level-badge ok" style="padding:2px 8px">OK</span></div>
+    <div class="vbar-wrap" id="vbar-mq2">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <div class="vbar" id="bar-mq2" style="height:40%;background:var(--green)"></div>
+        <div class="vbar-label">ppm</div>
+      </div>
+    </div>
+    <div class="sensor-val" id="val-mq2" style="color:var(--green)">—<span class="sensor-unit">ppm</span></div>
+    <div class="sensor-name">Gaz propane / fumée</div>
+    <div class="level-badge ok" id="level-mq2">NIVEAU : OK</div>
+  </div>
+
+  <!-- MQ-7 -->
+  <div class="panel">
+    <div class="ptitle">🏭 MQ-7 — CO Monoxyde <span id="mq7-badge" class="level-badge ok" style="padding:2px 8px">OK</span></div>
+    <div class="vbar-wrap">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <div class="vbar" id="bar-mq7" style="height:30%;background:var(--green)"></div>
+        <div class="vbar-label">ppm</div>
+      </div>
+    </div>
+    <div class="sensor-val" id="val-mq7" style="color:var(--green)">—<span class="sensor-unit">ppm</span></div>
+    <div class="sensor-name">Monoxyde de carbone</div>
+    <div class="level-badge ok" id="level-mq7">NIVEAU : OK</div>
+  </div>
+
+  <!-- MQ-135 -->
+  <div class="panel">
+    <div class="ptitle">🌫️ MQ-135 — Air / CO₂ <span id="mq135-badge" class="level-badge ok" style="padding:2px 8px">OK</span></div>
+    <div class="vbar-wrap">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <div class="vbar" id="bar-mq135" style="height:35%;background:var(--green)"></div>
+        <div class="vbar-label">ppm</div>
+      </div>
+    </div>
+    <div class="sensor-val" id="val-mq135" style="color:var(--green)">—<span class="sensor-unit">ppm</span></div>
+    <div class="sensor-name">Qualité air / CO₂</div>
+    <div class="level-badge ok" id="level-mq135">NIVEAU : OK</div>
+  </div>
+
+  <!-- LCD + LEDs + Buzzer -->
+  <div class="panel">
+    <div class="ptitle">📺 Affichage LCD 16×2</div>
+    <div style="text-align:center">
+      <div class="lcd">
+        <div class="lcd-row" id="lcd-r1">MQ2: ---  MQ7:---</div>
+        <div class="lcd-row" id="lcd-r2">MQ135:---  [OK ]</div>
+      </div>
+    </div>
+    <div class="leds">
+      <div><div class="led led-green off" id="led-green" title="LED Verte"></div><div style="font-size:9px;text-align:center;color:var(--muted);margin-top:3px">OK</div></div>
+      <div><div class="led led-yellow off" id="led-yellow" title="LED Jaune"></div><div style="font-size:9px;text-align:center;color:var(--muted);margin-top:3px">WARN</div></div>
+      <div><div class="led led-red off" id="led-red" title="LED Rouge"></div><div style="font-size:9px;text-align:center;color:var(--muted);margin-top:3px">DANGER</div></div>
+    </div>
+    <div class="buzzer" id="buzzer" title="Buzzer">🔕</div>
+    <div style="font-size:10px;color:var(--muted);text-align:center" id="buzzer-freq">Silence</div>
+  </div>
+</div>
+
+<div class="bottom">
+  <!-- History chart -->
+  <div class="panel">
+    <div class="ptitle">📈 Historique des relevés</div>
+    <canvas id="history" width="580" height="200"></canvas>
+  </div>
+
+  <!-- Threshold table + serial -->
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div class="panel">
+      <div class="ptitle">⚙️ Seuils d'alerte configurés</div>
+      <table>
+        <tr><th>Capteur</th><th>Gaz cible</th><th>WARNING</th><th>DANGER</th><th>Actuel</th></tr>
+        <tr><td>MQ-2</td><td>GPL/Fumée</td><td class="td-warn">400 ppm</td><td class="td-danger">700 ppm</td><td id="t-mq2">—</td></tr>
+        <tr><td>MQ-7</td><td>CO</td><td class="td-warn">150 ppm</td><td class="td-danger">300 ppm</td><td id="t-mq7">—</td></tr>
+        <tr><td>MQ-135</td><td>CO₂/Air</td><td class="td-warn">600 ppm</td><td class="td-danger">1000 ppm</td><td id="t-mq135">—</td></tr>
+      </table>
+    </div>
+    <div class="panel" style="flex:1">
+      <div class="ptitle">💻 Serial Monitor</div>
+      <div class="serial" id="serial"></div>
+    </div>
+  </div>
+</div>
+
+</div><!-- end variant-arduino -->
+
+<!-- ── Variante PIC16F877A + GSM ─────────────────────────────── -->
+<div id="variant-pic" style="display:none;padding:12px;max-width:1350px;margin:0 auto">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+
+    <!-- Capteurs ADC PIC -->
+    <div class="panel">
+      <div class="ptitle">🔥 Capteurs — ADC 10-bit PIC</div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+          <span>MQ-2 GPL/Fumée (RA0)</span>
+          <span id="pic-mq2" style="font-weight:700;color:var(--green)">—</span>
+        </div>
+        <div style="height:8px;background:#1a0d00;border-radius:4px;overflow:hidden">
+          <div id="pic-bar2" style="height:100%;width:30%;background:var(--green);transition:width .5s,background .5s;border-radius:4px"></div>
+        </div>
+        <div style="font-size:9px;color:var(--muted);text-align:right;margin-top:2px">Seuil danger : 700ppm</div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+          <span>MQ-7 CO (RA1)</span>
+          <span id="pic-mq7" style="font-weight:700;color:var(--green)">—</span>
+        </div>
+        <div style="height:8px;background:#1a0d00;border-radius:4px;overflow:hidden">
+          <div id="pic-bar7" style="height:100%;width:20%;background:var(--green);transition:width .5s,background .5s;border-radius:4px"></div>
+        </div>
+        <div style="font-size:9px;color:var(--muted);text-align:right;margin-top:2px">Seuil danger : 300ppm</div>
+      </div>
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0">
+          <span>Buzzer (RB0)</span><span id="pic-buzzer" style="color:var(--muted)">🔕 OFF</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;padding:3px 0">
+          <span>Relais coupure (RB1)</span><span id="pic-relay" style="color:var(--green)">🟢 ALIM OK</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- GSM SIM800L + SMS -->
+    <div class="panel">
+      <div class="ptitle">📱 SIM800L GSM — Alertes SMS autonomes</div>
+      <div style="background:#000d1a;border:1px solid #1a2a3a;border-radius:6px;padding:8px;margin-bottom:10px;font-size:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="color:var(--muted)">Module</span><span style="color:var(--blue)">SIM800L v2</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="color:var(--muted)">UART PIC</span><span style="color:var(--blue)">RC6/RC7 — 9600 baud</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="color:var(--muted)">Protocole</span><span style="color:var(--blue)">AT Commands (GSM 07.07)</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:var(--muted)">Autonomie</span><span style="color:var(--green)">Batterie Li-Po 3.7V</span>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:6px">📬 Alertes SMS reçues</div>
+      <div id="sms-inbox" style="max-height:160px;overflow-y:auto">
+        <div style="color:#333;padding:10px;text-align:center">Aucune alerte SMS</div>
+      </div>
+    </div>
+
+    <!-- Architecture PIC -->
+    <div class="panel">
+      <div class="ptitle">🏗️ Architecture PIC16F877A</div>
+      <div style="font-size:10px;line-height:1.9;color:var(--text)">
+        <div style="color:var(--orange);font-weight:700;margin-bottom:4px">CPU : PIC16F877A @ 20 MHz</div>
+        <div style="padding-left:8px;color:var(--muted)">
+          RA0 → ADC Ch0 (MQ-2)<br>
+          RA1 → ADC Ch1 (MQ-7)<br>
+          RB0 → GPIO Buzzer<br>
+          RB1 → GPIO Relais<br>
+          RC6/RC7 → UART GSM<br>
+          RD0–RD7 → LCD 16×2 (mode 4-bit)
+        </div>
+        <div style="color:var(--blue);font-weight:700;margin-top:8px;margin-bottom:4px">Firmware C — XC8 Compiler</div>
+        <div style="padding-left:8px;color:var(--muted)">
+          ADC 10-bit polling 500ms<br>
+          UART IRQ → AT+CMGS<br>
+          WDT actif — reset auto<br>
+          EEPROM : config seuils
+        </div>
+        <div style="color:var(--green);font-weight:700;margin-top:8px">✅ Avantage : 100% autonome</div>
+        <div style="padding-left:8px;color:var(--muted)">Aucun PC requis — SMS direct</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PIC serial -->
+  <div class="panel">
+    <div class="ptitle">💻 Journal PIC16F877A — UART Debug</div>
+    <div class="serial" id="pic-serial" style="height:120px"></div>
+  </div>
+</div><!-- end variant-pic -->
+
+<script>
+let mq2=250, mq7=80, mq135=350;
+let hist2=[], hist7=[], hist135=[];
+const MAX=60;
+const hCanvas = document.getElementById('history');
+const hctx = hCanvas.getContext('2d');
+
+function getLevel(v, w, d) { return v >= d ? 'DANGER' : v >= w ? 'WARNING' : 'OK'; }
+function getLevelColor(l) { return l==='DANGER'?'var(--red)':l==='WARNING'?'var(--yellow)':'var(--green)'; }
+
+function updateSensor(id, val, warn, danger, label) {
+  const level = getLevel(val, warn, danger);
+  const color = getLevelColor(level);
+  const pct = Math.min(100, val/(danger*1.5)*100);
+  document.getElementById('val-'+id).innerHTML = Math.round(val)+'<span class="sensor-unit">ppm</span>';
+  document.getElementById('val-'+id).style.color = color;
+  document.getElementById('bar-'+id).style.height = pct+'%';
+  document.getElementById('bar-'+id).style.background = color;
+  document.getElementById('level-'+id).textContent = 'NIVEAU : '+level;
+  document.getElementById('level-'+id).className = 'level-badge '+(level==='DANGER'?'danger':level==='WARNING'?'warn':'ok');
+  document.getElementById('t-'+id).textContent = Math.round(val)+' ppm';
+  document.getElementById('t-'+id).className = 'td-'+level.toLowerCase();
+  return level;
+}
+
+function drawHistory() {
+  const W=hCanvas.width, H=hCanvas.height;
+  hctx.clearRect(0,0,W,H);
+  hctx.fillStyle='#050200'; hctx.fillRect(0,0,W,H);
+  hctx.strokeStyle='#1a0d00'; hctx.lineWidth=1;
+  for(let y=0;y<=4;y++){const py=10+(H-30)*y/4;hctx.beginPath();hctx.moveTo(30,py);hctx.lineTo(W-10,py);hctx.stroke();}
+  function line(data, max, color) {
+    if(data.length<2)return;
+    hctx.beginPath();
+    data.forEach((v,i)=>{
+      const x=30+(i/(MAX-1))*(W-40);
+      const y=10+(1-v/max)*(H-30);
+      i===0?hctx.moveTo(x,y):hctx.lineTo(x,y);
+    });
+    hctx.strokeStyle=color;hctx.lineWidth=2;hctx.stroke();
+  }
+  line(hist2,1100,'#ff9800');
+  line(hist7,500,'#ffd600');
+  line(hist135,1500,'#76ff03');
+  const leg=[{c:'#ff9800',l:'MQ-2'},{c:'#ffd600',l:'MQ-7'},{c:'#76ff03',l:'MQ-135'}];
+  leg.forEach((e,i)=>{
+    hctx.fillStyle=e.c;hctx.fillRect(50+i*100,H-16,12,8);
+    hctx.fillStyle='#8a6040';hctx.font='10px sans-serif';hctx.fillText(e.l,66+i*100,H-9);
+  });
+}
+
+function serialLog(msg, cls='sl-ok') {
+  const s=document.getElementById('serial');
+  const now=new Date().toLocaleTimeString('fr-FR',{hour12:false});
+  const div=document.createElement('div');
+  div.className=cls;
+  div.textContent=`[${now}] ${msg}`;
+  s.appendChild(div);
+  s.scrollTop=s.scrollHeight;
+  if(s.children.length>60)s.removeChild(s.firstChild);
+}
+
+function updateLEDs(globalLevel) {
+  document.getElementById('led-green').className='led led-green '+(globalLevel==='OK'?'on':'off');
+  document.getElementById('led-yellow').className='led led-yellow '+(globalLevel==='WARNING'?'on':'off');
+  document.getElementById('led-red').className='led led-red '+(globalLevel==='DANGER'?'on':'off');
+  const buzzer=document.getElementById('buzzer');
+  const bfreq=document.getElementById('buzzer-freq');
+  if(globalLevel==='DANGER'){buzzer.textContent='🔊';bfreq.textContent='Bip 1kHz — ALARME!';buzzer.classList.add('beep');setTimeout(()=>buzzer.classList.remove('beep'),300);}
+  else if(globalLevel==='WARNING'){buzzer.textContent='🔉';bfreq.textContent='Bip 500Hz — Attention';}
+  else{buzzer.textContent='🔕';bfreq.textContent='Silence';}
+}
+
+function updateGlobalStatus(l2,l7,l135) {
+  const all=[l2,l7,l135];
+  let global='OK';
+  if(all.includes('DANGER'))global='DANGER';
+  else if(all.includes('WARNING'))global='WARNING';
+  const pill=document.getElementById('global-status');
+  if(global==='DANGER'){pill.textContent='🚨 DANGER GAS DETECTED';pill.className='status-pill danger';}
+  else if(global==='WARNING'){pill.textContent='⚠️ ATTENTION REQUISE';pill.className='status-pill warn';}
+  else{pill.textContent='✅ SYSTÈME OK';pill.className='status-pill ok';}
+  updateLEDs(global);
+  return global;
+}
+
+let t=0;
+function tick() {
+  t++;
+  // Simulate gas events
+  if(t%30===0) { mq2=Math.random()>0.5?650:220; }
+  if(t%45===0) { mq7=Math.random()>0.6?280:70; }
+  if(t%20===0) { mq135=Math.random()>0.4?850:320; }
+  mq2=Math.max(100,Math.min(1000,mq2+(Math.random()-.45)*25));
+  mq7=Math.max(30,Math.min(450,mq7+(Math.random()-.5)*15));
+  mq135=Math.max(150,Math.min(1300,mq135+(Math.random()-.45)*30));
+  const v2=Math.round(mq2),v7=Math.round(mq7),v135=Math.round(mq135);
+  const l2=updateSensor('mq2',v2,400,700);
+  const l7=updateSensor('mq7',v7,150,300);
+  const l135=updateSensor('mq135',v135,600,1000);
+  const global=updateGlobalStatus(l2,l7,l135);
+  // LCD
+  const f=(v,n)=>String(v).padStart(n,' ');
+  document.getElementById('lcd-r1').textContent=`MQ2:${f(v2,4)} MQ7:${f(v7,3)} `;
+  document.getElementById('lcd-r2').textContent=`MQ135:${f(v135,4)} [${global==='OK'?'OK ':global==='WARNING'?'WRN':'ERR'}]`;
+  // History
+  hist2.push(v2); hist7.push(v7); hist135.push(v135);
+  if(hist2.length>MAX)hist2.shift();
+  if(hist7.length>MAX)hist7.shift();
+  if(hist135.length>MAX)hist135.shift();
+  drawHistory();
+  // Serial
+  if(t%3===0) serialLog(`MQ2=${v2}ppm MQ7=${v7}ppm MQ135=${v135}ppm`,'sl-info');
+  if(l2==='DANGER'||l7==='DANGER'||l135==='DANGER') serialLog(`⚠ DANGER DETECTE — ${global==='DANGER'?'ALARME':'WARNING'}!`,'sl-danger');
+  else if(l2==='WARNING'||l7==='WARNING'||l135==='WARNING') serialLog(`[WARN] Seuil approche — vigilance`,'sl-warn');
+}
+
+// ── Variant switcher ─────────────────────────────────────────────
+let currentVariant = 'arduino';
+function switchVariant(v) {
+  currentVariant = v;
+  const v1 = document.getElementById('variant-arduino');
+  const v2 = document.getElementById('variant-pic');
+  const b1 = document.getElementById('btn-v1');
+  const b2 = document.getElementById('btn-v2');
+  if(v==='arduino') {
+    v1.style.display=''; v2.style.display='none';
+    b1.style.borderColor='var(--orange)'; b1.style.color='var(--orange)'; b1.style.background='#1a0d00';
+    b2.style.borderColor='#333'; b2.style.color='var(--muted)'; b2.style.background='transparent';
+  } else {
+    v1.style.display='none'; v2.style.display='';
+    b2.style.borderColor='var(--blue)'; b2.style.color='var(--blue)'; b2.style.background='#000d1a';
+    b1.style.borderColor='#333'; b1.style.color='var(--muted)'; b1.style.background='transparent';
+  }
+}
+
+// Init Arduino variant
+serialLog('[INIT] Arduino Uno démarré','sl-ok');
+serialLog('[INIT] LCD I2C 0x27 OK','sl-ok');
+serialLog('[INIT] MQ-2 | MQ-7 | MQ-135 préchauffage...','sl-info');
+serialLog('[INIT] Prêt — surveillance active','sl-ok');
+for(let i=0;i<15;i++)tick();
+setInterval(tick,1000);
+
+// PIC GSM simulation
+let smsLog = [];
+let picT = 0;
+function picTick() {
+  picT++;
+  const mq2v = 200 + Math.sin(picT*.08)*120 + (Math.random()-.5)*40;
+  const mq7v  = 70  + Math.sin(picT*.05)*60  + (Math.random()-.5)*20;
+  const danger2   = mq2v > 700;
+  const danger7   = mq7v > 300;
+  const warn2     = mq2v > 400;
+  const warn7     = mq7v > 150;
+
+  document.getElementById('pic-mq2').textContent = Math.round(mq2v)+'ppm';
+  document.getElementById('pic-mq7').textContent = Math.round(mq7v)+'ppm';
+  document.getElementById('pic-mq2').style.color = danger2?'var(--red)':warn2?'var(--yellow)':'var(--green)';
+  document.getElementById('pic-mq7').style.color = danger7?'var(--red)':warn7?'var(--yellow)':'var(--green)';
+
+  const adcBar2 = document.getElementById('pic-bar2');
+  const adcBar7 = document.getElementById('pic-bar7');
+  adcBar2.style.width = Math.min(100, mq2v/10)+'%';
+  adcBar2.style.background = danger2?'var(--red)':warn2?'var(--yellow)':'var(--green)';
+  adcBar7.style.width = Math.min(100, mq7v/4)+'%';
+  adcBar7.style.background = danger7?'var(--red)':warn7?'var(--yellow)':'var(--green)';
+
+  // GPIO buzzer/relay state
+  document.getElementById('pic-buzzer').textContent = (danger2||danger7) ? '🔊 ON' : '🔕 OFF';
+  document.getElementById('pic-buzzer').style.color = (danger2||danger7) ? 'var(--red)' : 'var(--muted)';
+  document.getElementById('pic-relay').textContent = (danger2||danger7) ? '🔴 COUPÉ' : '🟢 ALIM OK';
+  document.getElementById('pic-relay').style.color = (danger2||danger7) ? 'var(--red)' : 'var(--green)';
+
+  // SMS via SIM800L
+  if((danger2||danger7) && picT%30===0) {
+    const t = new Date().toLocaleTimeString('fr',{hour12:false});
+    const gas = danger2?'GPL/Fumée':'CO';
+    const val = danger2?Math.round(mq2v):Math.round(mq7v);
+    const sms = {time:t, msg:`ALERTE GAZ: ${gas} ${val}ppm — Bâtiment Zone A`};
+    smsLog.unshift(sms);
+    if(smsLog.length>5) smsLog.pop();
+    renderSMS();
+    addPicLog(`[SMS] AT+CMGS="+33612345678" → Alerte ${gas} envoyée`, 'sl-danger');
+    addPicLog(`[GSM] SIM800L OK — Signal: 18/31`, 'sl-info');
+  }
+  if(picT%8===0) {
+    const adc2=Math.round(mq2v/1023*1023); const adc7=Math.round(mq7v/450*1023);
+    addPicLog(`[ADC] RA0=${adc2} RA1=${adc7} — MQ2:${Math.round(mq2v)}ppm MQ7:${Math.round(mq7v)}ppm`, 'sl-info');
+  }
+  if(warn2&&!danger2&&picT%20===0) addPicLog('[WARN] MQ-2 seuil WARNING atteint','sl-warn');
+}
+
+function renderSMS() {
+  const el = document.getElementById('sms-inbox');
+  if(!smsLog.length){ el.innerHTML='<div style="color:#333;padding:10px;text-align:center">Aucune alerte SMS</div>'; return; }
+  el.innerHTML = smsLog.map(s=>`
+    <div style="background:#000d1a;border:1px solid #1a2a3a;border-radius:4px;padding:8px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-bottom:3px">
+        <span>📱 +33 6 12 34 56 78</span><span>${s.time}</span>
+      </div>
+      <div style="font-size:11px;color:var(--red)">${s.msg}</div>
+    </div>
+  `).join('');
+}
+
+let picLogEl;
+function addPicLog(msg, cls) {
+  if(!picLogEl) picLogEl = document.getElementById('pic-serial');
+  const t = new Date().toLocaleTimeString('fr',{hour12:false});
+  const div = document.createElement('div');
+  div.className = cls; div.textContent = `[${t}] ${msg}`;
+  picLogEl.appendChild(div);
+  picLogEl.scrollTop = picLogEl.scrollHeight;
+  if(picLogEl.children.length>50) picLogEl.removeChild(picLogEl.children[0]);
+}
+
+// Init PIC
+setTimeout(()=>{
+  addPicLog('[INIT] PIC16F877A 20MHz — système démarré','sl-ok');
+  addPicLog('[INIT] ADC 10-bit — RA0 (MQ-2), RA1 (MQ-7)','sl-ok');
+  addPicLog('[INIT] SIM800L UART 9600 baud — AT OK','sl-ok');
+  addPicLog('[INIT] Surveillance autonome active','sl-ok');
+  setInterval(picTick, 1200);
+  renderSMS();
+},500);
+</script>
+</body>
+</html>
